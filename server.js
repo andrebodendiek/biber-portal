@@ -16,7 +16,7 @@ import { currentPhase, PHASES } from './lib/phase.js';
 import { layout, landingPage, studentPage, messagePage } from './lib/views.js';
 import { adminPage, importPreviewPage, credentialFormPage } from './lib/admin-views.js';
 import { teacherPage, printPage } from './lib/teacher-views.js';
-import { parseGroupsClaim, isTeacher, resolveTeacherGroups } from './lib/groups.js';
+import { parseGroupsClaim, isTeacher, resolveTeacherGroups, classOverview } from './lib/groups.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -110,7 +110,7 @@ export function createApp(cfg = loadConfig()) {
     const teacher = isTeacher(groups, cfg.teacherGroups);
     // Gruppen nur speichern, wenn sie gebraucht werden: Lehrkräfte (eigene Gruppen)
     // und Schüler:innen mit Biber-Zugang (Quelle „Anmeldung“ für die Gruppenlisten).
-    if (hasGroups && (teacher || store.byAccount(account))) store.recordMembership(account, groups);
+    if (hasGroups && (teacher || cfg.admins.has(account) || store.byAccount(account))) store.recordMembership(account, groups);
     req.session.user = {
       account,
       name,
@@ -138,7 +138,7 @@ export function createApp(cfg = loadConfig()) {
       settings: store.settings,
       teacherGroupNames: cfg.teacherGroups,
     });
-    return { ...result, at: m?.at || null };
+    return { ...result, at: m?.at || null, known: !!m, total: m?.groups?.length || 0 };
   }
 
   // ---------- Öffentliche Routen ----------
@@ -214,7 +214,8 @@ export function createApp(cfg = loadConfig()) {
   // ---------- Lehrkräfte: Zugangslisten der eigenen IServ-Gruppen ----------
   app.get('/lehrkraft', requireTeacher, (req, res) => {
     const groups = teacherGroupsFor(req.session.user);
-    render(req, res, { title: 'Meine Gruppen', page: 'teacher', body: teacherPage({ user: req.session.user, groups, settings: store.settings }) });
+    const diagnosis = req.session.user.isAdmin ? { classes: classOverview(store.all()), memberships: store.membershipCount(), credentials: store.all().length } : null;
+    render(req, res, { title: 'Meine Gruppen', page: 'teacher', body: teacherPage({ user: req.session.user, groups, settings: store.settings, diagnosis }) });
   });
 
   app.get('/lehrkraft/druck/:act', requireTeacher, (req, res) => {

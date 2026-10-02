@@ -80,3 +80,33 @@ test('Gruppen mit Mitgliedern aus zu vielen Klassen werden ausgeblendet', () => 
   const off = resolveTeacherGroups({ teacherGroups, credentials, memberships, settings: { ...base, groupMaxClasses: 0 } });
   assert.deepEqual(off.visible.map((g) => g.act), ['ag.robotik']);
 });
+
+test('classTokens findet Klassenkennungen per RegExp', async () => {
+  const { classTokens } = await import('../lib/groups.js');
+  assert.deepEqual(classTokens('Klasse 7b (Mü)'), ['7b']);
+  assert.deepEqual(classTokens('Klassenleitung 7 b'), ['7b']);
+  assert.deepEqual(classTokens('Kl. 07b'), ['7b']);
+  assert.deepEqual(classTokens('10 a / 10b'), ['10a', '10b']);
+  assert.deepEqual(classTokens('Informatik 11'), ['11']);
+  assert.deepEqual(classTokens('Q1'), []);
+  assert.deepEqual(classTokens('AG2026'), []);
+});
+
+test('tolerante Zuordnung: Gruppe „Klasse 7b (Mü)“ findet Zugänge der „7b“, aber „Informatik 11“ nicht den ganzen Jahrgang', () => {
+  const credentials = [
+    ...['a', 'b', 'c', 'd'].map((x) => cred(`7b-${x}`, '7b', '')),
+    ...['a', 'b', 'c'].map((x) => cred(`7c-${x}`, '7 c Bio', '')),
+    ...['a', 'b', 'c', 'd', 'e'].map((x) => cred(`11-${x}`, '11', '')),
+  ];
+  const teacherGroups = [
+    { act: 'klasse-7b-mue', name: 'Klasse 7b (Mü)' },
+    { act: 'kl7c', name: 'Klassenleitung 7c' },
+    { act: 'informatik-11', name: 'Informatik 11' },
+    { act: 'wpk-7b-7c', name: 'WPK 7b/7c' }, // nennt zwei Klassen → kein RegExp-Treffer
+  ];
+  const settings = { groupMin: 3, groupMax: 40, groupMaxClasses: 3, groupIgnore: '', matchByClass: true, matchByLogin: true };
+  const { visible, hidden } = resolveTeacherGroups({ teacherGroups, credentials, memberships: {}, settings });
+  assert.deepEqual(visible.map((g) => [g.name, g.count]), [['Klasse 7b (Mü)', 4], ['Klassenleitung 7c', 3]]);
+  assert.equal(hidden.find((g) => g.act === 'informatik-11').count, 0);
+  assert.equal(hidden.find((g) => g.act === 'wpk-7b-7c').count, 0);
+});

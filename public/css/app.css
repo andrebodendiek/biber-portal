@@ -550,3 +550,7 @@ table.data.compact td { padding: 9px 8px; }
   .sheet-table tr:nth-child(even) td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .cut-card { min-height: 51mm; }
 }
+
+.diagnosis .table-wrap { margin: 12px 0; max-height: 420px; }
+.diagnosis .data td small { display: block; color: var(--muted); }
+.diag-h { margin-top: 18px; font-size: 1.1rem; }
