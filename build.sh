@@ -65,7 +65,18 @@ check_syntax() {
   ok "Syntax in Ordnung"
 }
 
+check_icloud() {
+  # macOS: Ist das Projekt in iCloud ausgelagert („dataless“), werden Tests extrem langsam oder hängen.
+  [ "$(uname)" = "Darwin" ] || return 0
+  if ls -lO package.json server.js lib/*.js node_modules/*/package.json 2>/dev/null | grep -q dataless; then
+    warn "Teile des Projekts liegen nur in iCloud (ausgelagert) – Tests und Build können dadurch minutenlang hängen."
+    warn "Abhilfe: Projekt aus „Schreibtisch“/„Dokumente“ verschieben (z. B. nach ~/Developer) oder im Finder"
+    warn "auf den Ordner rechtsklicken → „Immer auf diesem Mac behalten“. Danach: FRESH=1 ./build.sh"
+  fi
+}
+
 check_unit() {
+  check_icloud
   info "Führe Tests aus (Import, Speicher, Phasen, IServ-Anmeldung) …"
   if ! npm test --silent >/tmp/biber-portal-test.log 2>&1; then
     tail -60 /tmp/biber-portal-test.log
@@ -89,6 +100,8 @@ package() {
   local macflags=""
   if tar --version 2>/dev/null | grep -qi bsdtar; then macflags="--no-xattrs --no-mac-metadata"; fi
   # shellcheck disable=SC2086
+  # Lesbare Dateirechte sicherstellen (zusätzlich zur Korrektur im Dockerfile)
+  chmod -R a+rX server.js lib public package.json package-lock.json Dockerfile captain-definition 2>/dev/null || true
   # Erst in eine Temp-Datei schreiben, dann ersetzen (robust gegen gesperrte Dateien durch Cloud-Sync)
   local tmp="$DIST/.biber-portal.$$.tar"
   COPYFILE_DISABLE=1 tar $macflags -cf "$tmp" \

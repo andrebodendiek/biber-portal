@@ -28,8 +28,9 @@ export const USERS = [
   { preferred_username: 'andre.bodendiek', given_name: 'André', family_name: 'Bodendiek', role: 'Lehrkraft (Admin)', groups: [GROUPS.alle, GROUPS.lehrende, GROUPS.k8c, GROUPS.inf10, GROUPS.fsinf] },
 ];
 
-export async function startMock(port = PORT) {
-  const ISSUER = process.env.MOCK_ISSUER || `http://localhost:${port}`;
+export async function startMock(port = PORT, host) {
+  // Bei port 0 vergibt das System einen freien Port; der Issuer wird nach dem Start gesetzt.
+  let ISSUER = process.env.MOCK_ISSUER || `http://${host || 'localhost'}:${port}`;
   const { publicKey, privateKey } = await jose.generateKeyPair('RS256');
   const jwk = { ...(await jose.exportJWK(publicKey)), kid: 'mock-1', alg: 'RS256', use: 'sig' };
   const codes = new Map();
@@ -77,6 +78,15 @@ export async function startMock(port = PORT) {
   });
 
   app.post('/iserv/auth/public/token', async (req, res) => {
+    try {
+      await tokenHandler(req, res);
+    } catch (err) {
+      console.error('[mock-iserv] Token-Fehler:', err);
+      if (!res.headersSent) res.status(500).json({ error: 'server_error', error_description: err.message });
+    }
+  });
+
+  async function tokenHandler(req, res) {
     let id = req.body.client_id, secret = req.body.client_secret;
     const auth = req.headers.authorization || '';
     if (auth.startsWith('Basic ')) {
@@ -100,7 +110,7 @@ export async function startMock(port = PORT) {
       .setIssuer(ISSUER).setAudience(CLIENT_ID).setSubject(sub)
       .setIssuedAt().setExpirationTime('5m').sign(privateKey);
     res.json({ access_token: access, token_type: 'Bearer', expires_in: 300, id_token: idToken });
-  });
+  }
 
   app.get('/iserv/auth/userinfo', (req, res) => {
     const t = tokens.get((req.headers.authorization || '').replace(/^Bearer /, ''));
@@ -117,11 +127,14 @@ export async function startMock(port = PORT) {
     });
   });
 
-  return new Promise((resolve) => {
-    const server = app.listen(port, () => {
+  return new Promise((resolve, reject) => {
+    const server = app.listen(port, host, () => {
+      if (!process.env.MOCK_ISSUER) ISSUER = `http://${host || 'localhost'}:${server.address().port}`;
+      server.issuer = ISSUER;
       console.log(`Mock-IServ läuft auf ${ISSUER}`);
       resolve(server);
     });
+    server.once('error', (err) => reject(new Error(`Mock-IServ konnte Port ${port} nicht öffnen: ${err.message}`)));
   });
 }
 

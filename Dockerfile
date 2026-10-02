@@ -12,7 +12,10 @@ COPY server.js ./
 COPY lib ./lib
 COPY public ./public
 
-RUN mkdir -p /app/data && chown -R node:node /app/data
+# Dateirechte vereinheitlichen: Quelldateien vom Mac kommen teils mit Modus 600 (nur Besitzer)
+# und gehören im Image root – der Container läuft aber als „node“ und muss sie lesen können.
+RUN chmod -R a+rX /app/server.js /app/lib /app/public /app/package.json \
+ && mkdir -p /app/data && chown -R node:node /app/data
 USER node
 
 EXPOSE 80

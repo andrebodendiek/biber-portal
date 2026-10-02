@@ -4,25 +4,46 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
 
 import { startMock } from '../tools/mock-iserv.js';
 import { createApp } from '../server.js';
 import { loadConfig } from '../lib/config.js';
 
-let mock, server, base;
+let mock, server, base, mockBase;
+
+// Freie Ports (0) und 127.0.0.1 statt fester Ports/„localhost“:
+// keine Konflikte mit laufenden Instanzen (z. B. ./build.sh dev) und kein IPv6/IPv4-Raten.
+const HOST = '127.0.0.1';
+const listen = (handler) => new Promise((resolve, reject) => {
+  const s = http.createServer(handler).listen(0, HOST, () => resolve(s));
+  s.once('error', reject);
+});
 
 before(async () => {
-  mock = await startMock(4100);
-  process.env.ISERV_URL = 'http://localhost:4100';
-  process.env.MOCK_ISSUER = 'http://localhost:4100';
-  process.env.BASE_URL = 'http://localhost:3100';
+  delete process.env.MOCK_ISSUER;
+  delete process.env.NODE_ENV; // Tests laufen immer im Entwicklungsmodus
+  mock = await startMock(0, HOST);
+  mockBase = mock.issuer;
+  process.env.ISERV_URL = mockBase;
   process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'biber-e2e-'));
   process.env.ADMIN_ACCOUNTS = 'andre.bodendiek';
+  // BASE_URL muss vor dem Start feststehen (Redirect-URI) → Port vorab reservieren
+  const probe = await listen((req, res) => res.end());
+  const port = probe.address().port;
+  await new Promise((r) => probe.close(r));
+  process.env.BASE_URL = `http://${HOST}:${port}`;
   const { app } = createApp(loadConfig());
-  await new Promise((r) => { server = app.listen(3100, r); });
-  base = 'http://localhost:3100';
+  server = await new Promise((resolve, reject) => {
+    const s = app.listen(port, HOST, () => resolve(s));
+    s.once('error', reject);
+  });
+  base = process.env.BASE_URL;
 });
-after(() => { server?.closeAllConnections?.(); server?.close(); mock?.closeAllConnections?.(); mock?.close(); });
+after(() => {
+  server?.closeAllConnections?.(); server?.close();
+  mock?.closeAllConnections?.(); mock?.close();
+});
 
 // Minimaler Browser mit Cookie-Jar
 function browser() {
@@ -33,7 +54,7 @@ function browser() {
     const cookies = [...jar].filter(([, v]) => v.host === u.host).map(([k, v]) => `${k}=${v.value}`).join('; ');
     if (cookies) headers.cookie = cookies;
     if (process.env.DBG) console.log('>>', opts.method || 'GET', u.toString().slice(0, 90));
-    const res = await fetch(u, { ...opts, headers, redirect: 'manual' });
+    const res = await fetch(u, { ...opts, headers, redirect: 'manual', signal: AbortSignal.timeout(15000) });
     for (const c of res.headers.getSetCookie?.() || []) {
       const [pair] = c.split(';');
       const i = pair.indexOf('=');
@@ -52,7 +73,7 @@ async function login(b, account) {
   assert.match(start.text, /Mock-IServ/);
   const hidden = Object.fromEntries([...start.text.matchAll(/name="(\w+)" value="([^"]*)"/g)].map((m) => [m[1], m[2].replace(/&quot;/g, '"')]));
   const body = new URLSearchParams({ ...hidden, user: account });
-  return b.go('http://localhost:4100/iserv/auth/auth', { method: 'POST', body, headers: { 'content-type': 'application/x-www-form-urlencoded' } });
+  return b.go(`${mockBase}/iserv/auth/auth`, { method: 'POST', body, headers: { 'content-type': 'application/x-www-form-urlencoded' } });
 }
 const csrfOf = (html) => html.match(/name="_csrf" value="([^"]+)"/)[1];
 
