@@ -10,11 +10,17 @@ Schülerinnen und Schüler melden sich mit ihrem **IServ-Konto (Single-Sign-On, 
 - Phasenkarte mit Countdown bis zu den Biberwochen und Zeitleiste; Zugangskarte druckbar.
 - Ohne hinterlegte Daten erscheint ein freundlicher Hinweis an die Lehrkraft.
 
+**Lehrkräfte** (Mitglieder der IServ-Gruppe „Lehrende“)
+- Bereich **„Meine Gruppen.“**: alle eigenen IServ-Gruppen, zu denen Biber-Zugänge vorliegen.
+- Pro Gruppe druckfertig als **Liste** (mit Spalte „Erhalten“) oder als **Karten zum Ausschneiden** (10 pro A4-Seite).
+- Jeder Abruf wird im Protokoll der Verwaltung vermerkt.
+
 **Verwaltung** (nur Accounts aus `ADMIN_ACCOUNTS`)
 - Import des Biber-Exports als **CSV oder Excel (.xlsx)** mit zusätzlicher Spalte **`IServ`** (Accountname). Vorschau mit Prüfhinweisen, dann „Ergänzen“ oder „Ersetzen“.
 - Tabelle mit Suche/Filter, Zuordnung per Accountname direkt nachtragen, Vorschau „als Schüler:in“, Abrufstatus.
 - **Einzelne Zugänge per Formular** anlegen (Bereich „Einzeln.“, mit „Anlegen & nächster“ für mehrere hintereinander) und jeden Eintrag über das Stift-Symbol bearbeiten (Name, Klasse, Benutzername, Passwort, IServ-Account). Doppelte Benutzernamen oder IServ-Accounts werden abgewiesen; Abrufzähler bleiben beim Bearbeiten erhalten.
 - Phase (automatisch/manuell), Termine, Ziel-Adressen, Hinweistext, Schalter „Zugangsdaten sichtbar“.
+- Einstellungen für die Gruppenlisten der Lehrkräfte (siehe unten).
 - Nach dem Wettbewerb: alle Zugangsdaten endgültig löschen.
 
 ## Ablauf für die Lehrkraft
@@ -26,6 +32,24 @@ Schülerinnen und Schüler melden sich mit ihrem **IServ-Konto (Single-Sign-On, 
 
 Erkannte Spaltenköpfe (tolerant): `Benutzername`, `Passwort`, `IServ` / `IServ-Account` / `Account`, `Vorname`, `Nachname`, `Klassen-/Kursname` / `Klasse`, `Stufe`. Titelzeilen oberhalb der Kopfzeile, Semikolon/Komma/Tab sowie UTF-8 und Windows-1252 (Excel-CSV) werden erkannt. Eine Vorlage gibt es in der Verwaltung.
 
+## Gruppenlisten für Lehrkräfte
+
+IServ übermittelt beim Login (Scope `iserv:groups`) nur die Gruppen der **angemeldeten Person** – eine Schnittstelle „Mitglieder einer Gruppe“ gibt es nicht. Das Portal ermittelt die Zugänge einer Gruppe deshalb aus zwei Quellen:
+
+| Quelle | Funktionsweise | Stärke |
+|---|---|---|
+| **Klasse** | Klassen-/Kursname aus dem Biber-Export ↔ Name/Kürzel der IServ-Gruppe. „7b“, „Klasse 7b“, „klasse.7b“, „Kl. 07b“ gelten als gleich (Vergleich nur, wenn der Name eine Ziffer enthält). | Sofort vollständig, auch ohne vorherige Anmeldung der Schüler:innen. |
+| **Anmeldung** | Meldet sich eine Schülerin/ein Schüler **mit Biber-Zugang** an, speichert das Portal deren IServ-Gruppen. | Erfasst auch Kursgruppen („Informatik 11“), wird mit jeder Anmeldung vollständiger. |
+
+**Schutzregeln** (in der Verwaltung einstellbar):
+
+- **Mindestens** 3 Zugänge – blendet Gruppen ohne Schüler:innen aus (Fachschaften, Gremien …).
+- **Höchstens** 40 Zugänge – keine Massenlisten.
+- **Höchstens 3 verschiedene Klassen** je Gruppe – schützt vor Gruppen wie „Alle“, die über die Quelle „Anmeldung“ langsam wachsen und anfangs unter der Höchstzahl liegen.
+- **Immer ausblenden** (Standard: `Alle, Schüler, Schülerinnen und Schüler, Eltern`); die Lehrkräfte-Gruppe selbst ist immer ausgeblendet.
+
+Ausgeblendete Gruppen sieht die Lehrkraft mit Begründung („keine Zugänge“, „mehr als 40“ …). Druckseiten werden bei jedem Aufruf gegen die **aktuelle** IServ-Mitgliedschaft der Lehrkraft geprüft; fremde Gruppen sind nicht abrufbar. Gespeicherte Gruppenzuordnungen werden mit „Alles löschen“ entfernt.
+
 ## IServ einrichten (Single-Sign-On)
 
 In IServ als Administrator: **Verwaltung → System → Single-Sign-On → Hinzufügen** (OAuth/OpenID Connect):
@@ -36,7 +60,7 @@ In IServ als Administrator: **Verwaltung → System → Single-Sign-On → Hinzu
 | Client-ID / Client-Geheimnis | frei wählen bzw. übernehmen → in `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` |
 | Weiterleitungs-URI | `https://<Ihre-Portal-Adresse>/auth/callback` |
 | Grant-Typ | Authorization Code |
-| Scopes | `openid`, `profile`, `email` |
+| Scopes | `openid`, `profile`, `email`, **`iserv:groups`** (für die Gruppenlisten der Lehrkräfte) |
 | Vertrauenswürdig | ja (dann entfällt die Zustimmungsabfrage) |
 | Beschränkung auf Gruppen/Rollen | optional, z. B. nur Schüler:innen + Informatik-Lehrkräfte |
 
@@ -89,7 +113,8 @@ Geheimnisse erzeugen: `./build.sh secrets` (oder `openssl rand -base64 48`).
 | `IMPRESSUM_URL` | leer | Link „Impressum“ in der Fußzeile |
 | `DATENSCHUTZ_URL` | leer | Link „Datenschutz“ in der Fußzeile |
 | `TRUST_PROXY` | `1` (in Produktion) | Anzahl vertrauenswürdiger Proxys; hinter CapRover/nginx passt `1` |
-| `OIDC_SCOPE` | `openid profile email` | Angefragte Scopes |
+| `OIDC_SCOPE` | `openid profile email iserv:groups` | Angefragte Scopes (`iserv:groups` wird für die Gruppenlisten benötigt) |
+| `TEACHER_GROUPS` | `lehrende` | IServ-Gruppe(n) der Lehrkräfte (Kürzel oder Name, kommagetrennt) |
 | `OIDC_ACCOUNT_CLAIM` | `preferred_username` | Claim, der den IServ-Accountnamen enthält |
 | `OIDC_TOKEN_AUTH_METHOD` | automatisch | `client_secret_basic` oder `client_secret_post` – nur setzen, wenn der Token-Abruf scheitert |
 | `OIDC_PKCE` | `true` | Auf `false`, falls IServ PKCE ablehnt |
@@ -152,6 +177,8 @@ lib/oidc.js          IServ-OpenID-Connect-Client (Code-Flow + PKCE)
 lib/store.js         verschlüsselter Datenspeicher
 lib/importer.js      CSV/XLSX-Import mit Spaltenerkennung
 lib/phase.js         Phasenlogik (Europe/Berlin)
+lib/groups.js        IServ-Gruppen: Lehrende erkennen, Zugänge je Gruppe, Schutzregeln
+lib/teacher-views.js Lehrkräfte: „Meine Gruppen“, Druckliste und Karten
 lib/views.js         Start- und Schüleransicht
 lib/admin-views.js   Verwaltung und Import-Vorschau
 public/              CSS (Aurora/Glas), JS, Favicon

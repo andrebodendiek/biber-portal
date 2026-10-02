@@ -314,7 +314,7 @@ input:focus, select:focus, textarea:focus { outline: none; background: var(--pan
 /* ---------- Druck ---------- */
 .print-card { display: none; }
 @media print {
-  .bg, .nav, .foot, main > *:not(.print-card), .toast { display: none !important; }
+  .bg, .nav, .foot, main > *:not(.print-card):not(.sheet), .toast { display: none !important; }
   body { background: #fff; color: #000; }
   .print-card { display: block !important; border: 1.5px dashed #000; border-radius: 14px; padding: 24px; max-width: 480px; font: 13pt/1.5 var(--text); }
   .print-card h2 { margin: 0 0 10px; font-size: 15pt; }
@@ -470,4 +470,83 @@ table.data.compact td { padding: 9px 8px; }
   .cred-form .span2 { grid-column: auto; }
   .cred-form .actions .btn { flex: 1 1 auto; }
   .form-note { flex-basis: 100%; }
+}
+
+/* =========================================================
+   Lehrkräfte: Gruppen und Druck
+   ========================================================= */
+.settings-sub { margin-top: 18px; padding-top: 22px; border-top: 1px solid var(--line); }
+.settings-sub p { margin: 4px 0 0; }
+
+.group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+.group-tile { display: flex; flex-direction: column; gap: 4px; }
+.group-tile .k { font-family: var(--mono); font-weight: 500; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group-tile .h3 { margin-bottom: 2px; }
+.group-count { display: flex; align-items: baseline; gap: 8px; margin: 10px 0 0 !important; }
+.group-count span { font-family: var(--display); font-weight: 700; font-size: 3.2rem; letter-spacing: -.055em; line-height: 1; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; font-variant-numeric: tabular-nums; }
+.group-count small { font-weight: 600; color: var(--ink); font-size: .95rem; }
+.group-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 20px; }
+.group-actions .btn { flex: 1; padding: 10px 14px; font-size: .92rem; }
+
+.hidden-groups { max-width: 1080px; margin: 22px auto 0; padding: 18px 24px; border-radius: var(--r-lg); background: var(--field); }
+.hidden-groups summary { cursor: pointer; font-weight: 600; color: var(--ink-2); list-style: none; display: flex; align-items: center; gap: 8px; }
+.hidden-groups summary::-webkit-details-marker { display: none; }
+.hidden-groups summary::before { content: "›"; display: inline-block; transition: transform .3s var(--ease); font-size: 1.2em; }
+.hidden-groups[open] summary::before { transform: rotate(90deg); }
+.hidden-groups ul { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 6px; font-size: .9rem; }
+.hidden-groups li { display: flex; justify-content: space-between; gap: 16px; padding: 6px 0; border-top: 1px solid var(--line); }
+.teacher-info { margin-top: 28px; }
+
+/* Druckvorschau */
+.print-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; max-width: 900px; margin: 34px auto 18px; }
+.print-toolbar .segmented { margin: 0; }
+.segmented a.on { background: var(--panel-solid); color: var(--ink); box-shadow: 0 2px 8px rgba(0,0,0,.08); }
+.sheet {
+  max-width: 900px; margin: 0 auto 40px; padding: 48px 52px; border-radius: 10px;
+  background: #fff; color: #111; box-shadow: 0 30px 80px -30px rgba(0,0,0,.45), 0 0 0 1px rgba(0,0,0,.06);
+  font: 13px/1.45 var(--text); letter-spacing: 0;
+}
+.sheet .mono { font-family: var(--mono); }
+.sheet-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; padding-bottom: 14px; margin-bottom: 18px; border-bottom: 2px solid #111; }
+.sheet-head h1 { margin: 2px 0 0; font: 700 26px/1.1 var(--display); letter-spacing: -.02em; }
+.sheet-head p { margin: 0; color: #555; }
+.sheet-kicker { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #555 !important; }
+.sheet-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; font-size: 11px; color: #555; text-align: right; }
+.sheet-meta strong { color: #111; margin-top: 4px; }
+.sheet-table { width: 100%; border-collapse: collapse; }
+.sheet-table th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: #555; padding: 6px 8px; border-bottom: 1px solid #111; }
+.sheet-table td { padding: 7px 8px; border-bottom: 1px solid #ddd; vertical-align: middle; }
+.sheet-table td.mono { font-size: 13.5px; font-weight: 600; }
+.sheet-table tr:nth-child(even) td { background: #f6f6f7; }
+.sheet-table .tick span { display: inline-block; width: 14px; height: 14px; border: 1.5px solid #111; border-radius: 3px; }
+.sheet-foot { margin: 16px 0 0; font-size: 11.5px; color: #333; }
+
+.cut-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-top: 1px dashed #999; border-left: 1px dashed #999; }
+.cut-card { padding: 14px 16px; border-right: 1px dashed #999; border-bottom: 1px dashed #999; min-height: 48mm; display: flex; flex-direction: column; gap: 4px; break-inside: avoid; page-break-inside: avoid; }
+.cut-card header { display: flex; justify-content: space-between; font-size: 10.5px; color: #555; }
+.cut-card header strong { text-transform: uppercase; letter-spacing: .06em; }
+.cut-card header span { font-weight: 600; color: #111; }
+.cut-name { margin: 2px 0 4px; font: 700 16px/1.2 var(--display); }
+.cut-card dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; align-items: baseline; }
+.cut-card dt { font-size: 10.5px; color: #555; }
+.cut-card dd { margin: 0; font-size: 15px; font-weight: 700; }
+.cut-card footer { margin-top: auto; font-size: 10.5px; color: #555; }
+
+@media (max-width: 640px) {
+  .sheet { padding: 24px 18px; overflow-x: auto; }
+  .sheet-head { flex-direction: column; align-items: flex-start; }
+  .sheet-meta { align-items: flex-start; text-align: left; }
+  .cut-grid { grid-template-columns: 1fr; }
+}
+
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body.page-print { background: #fff !important; }
+  body.page-print main > :not(.sheet) { display: none !important; }
+  body.page-print main { width: auto; padding: 0; margin: 0; }
+  body.page-print .sheet { max-width: none; margin: 0; padding: 0; box-shadow: none; border-radius: 0; opacity: 1 !important; transform: none !important; filter: none !important; }
+  .sheet-table thead { display: table-header-group; }
+  .sheet-table tr { break-inside: avoid; }
+  .sheet-table tr:nth-child(even) td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .cut-card { min-height: 51mm; }
 }

@@ -15,6 +15,8 @@ import { parseCredentialFile } from './lib/importer.js';
 import { currentPhase, PHASES } from './lib/phase.js';
 import { layout, landingPage, studentPage, messagePage } from './lib/views.js';
 import { adminPage, importPreviewPage, credentialFormPage } from './lib/admin-views.js';
+import { teacherPage, printPage } from './lib/teacher-views.js';
+import { parseGroupsClaim, isTeacher, resolveTeacherGroups } from './lib/groups.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -70,8 +72,10 @@ export function createApp(cfg = loadConfig()) {
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
 
   // ---------- Hilfen ----------
-  const render = (req, res, opts, status = 200) =>
-    res.status(status).type('html').send(layout({ cfg, csrf: req.session.csrf, user: req.session.user || null, ...opts }));
+  const render = (req, res, opts, status = 200) => {
+    const user = req.session.user ? { ...req.session.user, canPrint: canPrint(req.session.user) } : null;
+    return res.status(status).type('html').send(layout({ cfg, csrf: req.session.csrf, user, ...opts }));
+  };
 
   function checkCsrf(req, res, next) {
     const token = req.body?._csrf;
@@ -101,12 +105,40 @@ export function createApp(cfg = loadConfig()) {
     const account = normalizeAccount(claims[cfg.oidc.accountClaim] || claims.preferred_username || claims.email);
     if (!account) throw new Error(`IServ hat keinen Accountnamen geliefert (Claim „${cfg.oidc.accountClaim}“).`);
     const name = claims.name || [claims.given_name, claims.family_name].filter(Boolean).join(' ') || account;
+    const hasGroups = 'iserv:groups' in claims || 'groups' in claims;
+    const groups = parseGroupsClaim(claims);
+    const teacher = isTeacher(groups, cfg.teacherGroups);
+    // Gruppen nur speichern, wenn sie gebraucht werden: Lehrkräfte (eigene Gruppen)
+    // und Schüler:innen mit Biber-Zugang (Quelle „Anmeldung“ für die Gruppenlisten).
+    if (hasGroups && (teacher || store.byAccount(account))) store.recordMembership(account, groups);
     req.session.user = {
       account,
       name,
       givenName: claims.given_name || '',
       isAdmin: cfg.admins.has(account),
+      isTeacher: teacher,
+      groupsKnown: hasGroups,
     };
+  }
+
+  const canPrint = (user) => !!user && (user.isAdmin || (user.isTeacher && store.settings.teacherPrintEnabled));
+  const requireTeacher = (req, res, next) => {
+    if (!req.session.user) return res.redirect('/');
+    if (!canPrint(req.session.user)) {
+      return render(req, res, { title: 'Kein Zugriff', body: messagePage({ title: 'Kein Zugriff.', text: 'Nur für Lehrkräfte.', action: { href: '/', label: 'Zurück' } }) }, 403);
+    }
+    next();
+  };
+  function teacherGroupsFor(user) {
+    const m = store.membershipOf(user.account);
+    const result = resolveTeacherGroups({
+      teacherGroups: m?.groups || [],
+      credentials: store.all(),
+      memberships: store.memberships,
+      settings: store.settings,
+      teacherGroupNames: cfg.teacherGroups,
+    });
+    return { ...result, at: m?.at || null };
   }
 
   // ---------- Öffentliche Routen ----------
@@ -119,6 +151,7 @@ export function createApp(cfg = loadConfig()) {
       return render(req, res, { title: 'Anmelden', page: 'landing', body: landingPage({ cfg, error, devLogin: cfg.devLogin, csrf: req.session.csrf }) });
     }
     const cred = store.byAccount(user.account);
+    if (!cred && canPrint(user) && !user.isAdmin) return res.redirect('/lehrkraft');
     const settings = store.settings;
     if (cred && settings.credentialsVisible) store.markViewed(cred.id);
     render(req, res, { title: 'Meine Zugangsdaten', page: 'student', body: studentPage({ user, cred, settings, phase: currentPhase(settings) }) });
@@ -127,8 +160,11 @@ export function createApp(cfg = loadConfig()) {
   // ---------- IServ-Anmeldung ----------
   app.get('/auth/login', async (req, res) => {
     try {
-      const { url, state, nonce, verifier } = await oidc.beginLogin();
-      req.session.oidc = { state, nonce, verifier, at: Date.now() };
+      // Fallback: lehnt IServ den Scope iserv:groups ab, ohne Gruppen anmelden
+      const noGroups = req.query.ohneGruppen === '1';
+      const scope = noGroups ? cfg.oidc.scope.split(/\s+/).filter((x) => x !== 'iserv:groups').join(' ') : undefined;
+      const { url, state, nonce, verifier } = await oidc.beginLogin({ scope });
+      req.session.oidc = { state, nonce, verifier, at: Date.now(), noGroups };
       res.redirect(url);
     } catch (err) {
       console.error('[auth] Login-Start fehlgeschlagen:', err);
@@ -141,6 +177,10 @@ export function createApp(cfg = loadConfig()) {
     const pending = req.session.oidc;
     req.session.oidc = null;
     try {
+      if (req.query.error === 'invalid_scope' && pending && !pending.noGroups && cfg.oidc.scope.includes('iserv:groups')) {
+        console.warn('[auth] IServ lehnt den Scope iserv:groups ab – Anmeldung ohne Gruppen. Scope im IServ-Client freigeben!');
+        return res.redirect('/auth/login?ohneGruppen=1');
+      }
       if (req.query.error) throw new Error(`IServ meldet: ${req.query.error_description || req.query.error}`);
       if (!pending || typeof req.query.state !== 'string' || req.query.state !== pending.state) {
         throw new Error('Ungültiger oder abgelaufener Anmeldevorgang (state).');
@@ -149,7 +189,9 @@ export function createApp(cfg = loadConfig()) {
       const claims = await oidc.finishLogin({ code: String(req.query.code || ''), verifier: pending.verifier, nonce: pending.nonce });
       establishSession(req, claims);
       req.session.csrf = crypto.randomBytes(24).toString('base64url'); // neue Sitzung, neues Token
-      res.redirect(req.session.user.isAdmin && !store.byAccount(req.session.user.account) ? '/admin' : '/');
+      const u = req.session.user;
+      const own = store.byAccount(u.account);
+      res.redirect(own ? '/' : u.isAdmin ? '/admin' : canPrint(u) ? '/lehrkraft' : '/');
     } catch (err) {
       console.error('[auth] Callback fehlgeschlagen:', err.message);
       req.session.loginError = 'Anmeldung hat nicht geklappt. Bitte noch einmal.';
@@ -167,6 +209,23 @@ export function createApp(cfg = loadConfig()) {
   app.post('/logout', checkCsrf, (req, res) => {
     req.session = null;
     res.type('html').send(layout({ cfg, title: 'Abgemeldet', body: messagePage({ title: 'Bis bald.', text: 'Im Portal abgemeldet. IServ bleibt angemeldet.', action: { href: '/', label: 'Startseite' } }) }));
+  });
+
+  // ---------- Lehrkräfte: Zugangslisten der eigenen IServ-Gruppen ----------
+  app.get('/lehrkraft', requireTeacher, (req, res) => {
+    const groups = teacherGroupsFor(req.session.user);
+    render(req, res, { title: 'Meine Gruppen', page: 'teacher', body: teacherPage({ user: req.session.user, groups, settings: store.settings }) });
+  });
+
+  app.get('/lehrkraft/druck/:act', requireTeacher, (req, res) => {
+    const { visible } = teacherGroupsFor(req.session.user);
+    const group = visible.find((g) => g.act === String(req.params.act).toLowerCase());
+    if (!group) {
+      return render(req, res, { title: 'Nicht verfügbar', body: messagePage({ title: 'Nicht verfügbar.', text: 'Diese Gruppe gehört nicht zu Ihren Gruppen oder ist ausgeblendet.', action: { href: '/lehrkraft', label: 'Meine Gruppen' } }) }, 404);
+    }
+    const layoutMode = req.query.layout === 'karten' ? 'karten' : 'liste';
+    store.note(actor(req), 'print', `Zugangsliste „${group.name}“ (${group.count} Zugänge, ${layoutMode}) aufgerufen`);
+    render(req, res, { title: `Zugänge ${group.name}`, page: 'print', body: printPage({ group, layoutMode, user: req.session.user, settings: store.settings }) });
   });
 
   // ---------- Verwaltung ----------
@@ -288,6 +347,26 @@ export function createApp(cfg = loadConfig()) {
       try { const x = new URL(b[u]); if (x.protocol !== 'https:') throw 0; } catch { errors.push(`${u === 'loginUrl' ? 'Anmelde-Adresse' : 'Schnupper-Adresse'} muss eine https-Adresse sein.`); }
     }
     const phaseMode = b.phaseMode === 'auto' || PHASES[b.phaseMode] ? b.phaseMode : 'auto';
+    let teacherSettings = {};
+    if (b.teacherSection === '1') {
+      const min = Number.parseInt(b.groupMin, 10);
+      const max = Number.parseInt(b.groupMax, 10);
+      if (!(min >= 1 && min <= 500)) errors.push('Mindestzahl muss zwischen 1 und 500 liegen.');
+      if (!(max >= 1 && max <= 2000)) errors.push('Höchstzahl muss zwischen 1 und 2000 liegen.');
+      if (min > max) errors.push('Die Mindestzahl darf nicht größer als die Höchstzahl sein.');
+      const maxClasses = Number.parseInt(b.groupMaxClasses, 10);
+      if (!(maxClasses >= 0 && maxClasses <= 100)) errors.push('Höchstzahl an Klassen muss zwischen 0 und 100 liegen.');
+      teacherSettings = {
+        teacherPrintEnabled: b.teacherPrintEnabled === '1',
+        groupMin: min,
+        groupMax: max,
+        groupMaxClasses: maxClasses,
+        groupIgnore: String(b.groupIgnore || '').slice(0, 1000).trim(),
+        matchByClass: b.matchByClass === '1',
+        matchByLogin: b.matchByLogin === '1',
+      };
+      if (!teacherSettings.matchByClass && !teacherSettings.matchByLogin) errors.push('Mindestens eine Quelle (Klasse oder Anmeldung) muss aktiv sein.');
+    }
     if (errors.length) {
       setFlash(req, 'error', errors.join(' '));
       return res.redirect('/admin#einstellungen');
@@ -302,6 +381,7 @@ export function createApp(cfg = loadConfig()) {
       schnupperUrl: b.schnupperUrl,
       notice: String(b.notice || '').slice(0, 300).trim(),
       credentialsVisible: b.credentialsVisible === '1',
+      ...(b.teacherSection === '1' ? teacherSettings : {}),
     }, actor(req));
     setFlash(req, 'success', 'Einstellungen gespeichert.');
     res.redirect('/admin#einstellungen');

@@ -9,11 +9,23 @@ const PORT = Number(process.env.MOCK_PORT || 4000);
 const CLIENT_ID = process.env.OIDC_CLIENT_ID || 'biber-portal';
 const CLIENT_SECRET = process.env.OIDC_CLIENT_SECRET || 'dev-secret';
 
+const G = (act, name) => ({ id: Math.abs([...act].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7)), act, name });
+const GROUPS = {
+  alle: G('alle', 'Alle'),
+  schueler: G('schueler', 'Schülerinnen und Schüler'),
+  lehrende: G('lehrende', 'Lehrende'),
+  k10a: G('klasse.10a', 'Klasse 10a'),
+  k8c: G('klasse.8c', 'Klasse 8c'),
+  inf10: G('informatik.10', 'Informatik 10'),
+  fsinf: G('fachschaft.informatik', 'Fachschaft Informatik'),
+};
+
 export const USERS = [
-  { preferred_username: 'max.mustermann', given_name: 'Max', family_name: 'Mustermann', role: 'Schüler' },
-  { preferred_username: 'erika.musterfrau', given_name: 'Erika', family_name: 'Musterfrau', role: 'Schülerin' },
-  { preferred_username: 'lena.ohnedaten', given_name: 'Lena', family_name: 'Ohnedaten', role: 'Schülerin (ohne Biber-Daten)' },
-  { preferred_username: 'andre.bodendiek', given_name: 'André', family_name: 'Bodendiek', role: 'Lehrkraft (Admin)' },
+  { preferred_username: 'max.mustermann', given_name: 'Max', family_name: 'Mustermann', role: 'Schüler', groups: [GROUPS.alle, GROUPS.schueler, GROUPS.k10a, GROUPS.inf10] },
+  { preferred_username: 'erika.musterfrau', given_name: 'Erika', family_name: 'Musterfrau', role: 'Schülerin', groups: [GROUPS.alle, GROUPS.schueler, GROUPS.k10a] },
+  { preferred_username: 'lena.ohnedaten', given_name: 'Lena', family_name: 'Ohnedaten', role: 'Schülerin (ohne Biber-Daten)', groups: [GROUPS.alle, GROUPS.schueler, GROUPS.k8c] },
+  { preferred_username: 'tina.lehrerin', given_name: 'Tina', family_name: 'Lehrerin', role: 'Lehrkraft (Klasse 10a, Informatik 10)', groups: [GROUPS.alle, GROUPS.lehrende, GROUPS.k10a, GROUPS.inf10, GROUPS.fsinf] },
+  { preferred_username: 'andre.bodendiek', given_name: 'André', family_name: 'Bodendiek', role: 'Lehrkraft (Admin)', groups: [GROUPS.alle, GROUPS.lehrende, GROUPS.k8c, GROUPS.inf10, GROUPS.fsinf] },
 ];
 
 export async function startMock(port = PORT) {
@@ -101,6 +113,7 @@ export async function startMock(port = PORT) {
       given_name: u.given_name,
       family_name: u.family_name,
       email: `${u.preferred_username}@mock-iserv.test`,
+      'iserv:groups': u.groups,
     });
   });
 

@@ -150,6 +150,11 @@
     try { localStorage.setItem('biber-theme', next); } catch (e) { /* egal */ }
   });
 
+  // ---------- Druckseite (Lehrkräfte) ----------
+  document.querySelectorAll('[data-print-page]').forEach(function (btn) {
+    btn.addEventListener('click', function () { window.print(); });
+  });
+
   // ---------- Zugangsdaten ----------
   var card = document.querySelector('[data-cred]');
   if (!card) return;

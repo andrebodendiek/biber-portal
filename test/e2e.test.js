@@ -196,3 +196,62 @@ test('einzelne Zugänge per Formular anlegen und bearbeiten', async () => {
   assert.match(page.text, /Neu-Pw-2/);
   assert.ok(!page.text.includes('Erst-Pw-1'));
 });
+
+test('Lehrkräfte drucken Zugangslisten ihrer IServ-Gruppen', async () => {
+  const form = { 'content-type': 'application/x-www-form-urlencoded' };
+  const admin = browser();
+  let page = await login(admin, 'andre.bodendiek');
+  page = await admin.go('/admin');
+  // Drei weitere Zugänge der Klasse 10a (ohne IServ-Account) – Quelle „Klasse“
+  for (const n of ['a', 'b', 'c']) {
+    page = await admin.go('/admin/credentials', {
+      method: 'POST', headers: form,
+      body: new URLSearchParams({ _csrf: csrfOf(page.text), firstName: `Kind-${n}`, lastName: 'Zehn', className: '10a', username: `biber-10a-${n}`, password: `Geheim-${n}`, account: '', next: 'again' }),
+    });
+  }
+
+  // Lehrkraft (nicht Admin) landet nach dem Login auf „Meine Gruppen“
+  const tina = browser();
+  page = await login(tina, 'tina.lehrerin');
+  assert.match(page.url, /\/lehrkraft$/);
+  assert.match(page.text, /Meine Gruppen\./);
+  assert.match(page.text, /Klasse 10a/);
+  assert.match(page.text, /Fachschaft Informatik/); // ausgeblendet, aber begründet
+  assert.ok(!page.text.includes('Geheim-a')); // Übersicht zeigt keine Passwörter
+
+  // Druckliste
+  page = await tina.go('/lehrkraft/druck/klasse.10a?layout=liste');
+  assert.equal(page.res.status, 200);
+  assert.match(page.text, /Geheim-a/);
+  assert.match(page.text, /biber-10a-c/);
+  assert.match(page.text, /Vertraulich/);
+  assert.ok(!page.text.includes('biber-lena')); // 8c gehört nicht dazu
+  page = await tina.go('/lehrkraft/druck/klasse.10a?layout=karten');
+  assert.match(page.text, /cut-card/);
+
+  // Fremde Gruppe (Tina ist nicht in 8c) → 404
+  page = await tina.go('/lehrkraft/druck/klasse.8c');
+  assert.equal(page.res.status, 404);
+  // Keine Verwaltung für Lehrkräfte
+  page = await tina.go('/admin');
+  assert.equal(page.res.status, 403);
+
+  // Schüler:innen haben keinen Zugriff
+  const max = browser();
+  await login(max, 'max.mustermann');
+  page = await max.go('/lehrkraft');
+  assert.equal(page.res.status, 403);
+
+  // Abruf ist protokolliert
+  page = await admin.go('/admin');
+  assert.match(page.text, /tina\.lehrerin<\/strong> · Zugangsliste „Klasse 10a“/);
+
+  // Abschalten in der Verwaltung → Lehrkraft ohne Zugriff
+  page = await admin.go('/admin/settings', {
+    method: 'POST', headers: form,
+    body: new URLSearchParams({ _csrf: csrfOf(page.text), phaseMode: 'auto', schnupperStart: '2026-09-14', schnupperEnd: '2026-11-06', contestStart: '2026-11-09', contestEnd: '2026-11-20', loginUrl: 'https://wettbewerb.informatik-biber.de/index.php?action=login', schnupperUrl: 'https://wettbewerb.informatik-biber.de/index.php?action=login', notice: '', credentialsVisible: '1', teacherSection: '1', groupMin: '3', groupMax: '40', groupMaxClasses: '3', groupIgnore: 'Alle', matchByClass: '1', matchByLogin: '1' }),
+  });
+  assert.match(page.text, /Einstellungen gespeichert/);
+  page = await tina.go('/lehrkraft');
+  assert.equal(page.res.status, 403);
+});
